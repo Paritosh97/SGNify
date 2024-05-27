@@ -10,7 +10,7 @@ from vitpose.utils.visualization import draw_points_and_skeleton, joints_dict
 
 def run_vitpose(*, images_folder, output_folder):
     det_model = YOLO("data/yolov8n.pt")
-    pose_model = vitpose_inference_model(batch_size=1, model_mode="huge", weights_dir="data")
+    pose_model = vitpose_inference_model(batch_size=1, model_spec="coco17-huge", weights_dir="data")
 
     for image_path in tqdm.tqdm(sorted(images_folder.glob("*"))):
         im = Image.open(image_path)

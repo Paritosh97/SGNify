@@ -9,7 +9,7 @@ password=$(urle $password)
 
 echo -e "\nDownloading SGNify..."
 wget --post-data "username=$username&password=$password" 'https://download.is.tue.mpg.de/download.php?domain=sgnify&resume=1&sfile=data.zip' -O 'data.zip' --no-check-certificate --continue
-unzip data.zip -d data/
+unzip data.zip
 rm data.zip
 
 GIT_LFS_SKIP_SMUDGE=1 git submodule update --init --recursive

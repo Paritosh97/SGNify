@@ -4,7 +4,7 @@ channels:
   - conda-forge
   - nvidia
 dependencies:
-  - python==3.10.*
+  - python==3.9.*
   - pip
   - git
   - configargparse
@@ -16,7 +16,6 @@ dependencies:
   - numpy
   - omegaconf
   - openh264
-  - pyrender==0.1.23
   - pytorch
   - pytorch-cuda
   - pytorch3d::pytorch3d
@@ -37,3 +36,4 @@ dependencies:
     - ultralytics
     - python-ffmpeg
     - networkx==2.5.1
+    - pyrender==0.1.23
