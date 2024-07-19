@@ -35,9 +35,7 @@ This repository contains the fitting code used for the experiments in [Reconstru
 ### Fitting 
 Run the following command to execute the code:
 ```Shell
-python sgnify.py \
-    --image_dir_path DATA_PATH \
-    --output_folder OUTPUT_FOLDER
+python sgnify.py --image_dir_path /data/azee_env/sgnify_env/SGNify/data/demo/frame_low --output_folder /data/azee_env/sgnify_env/SGNify/data/demo/output
 ```
 where the `DATA_PATH` should be either a path to a video or a folder of images.
 

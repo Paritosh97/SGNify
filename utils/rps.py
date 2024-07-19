@@ -71,15 +71,36 @@ def create_obj(pkl_in, hand, avg_pca, out_path):
 def average_handpose(pkl_paths, hand, mp_frames):
     hand_pca = []
     weights = []
+    
+    # Debugging information
+    print(f"Total mp_frames length: {len(mp_frames)}")
+    
     for pkl_path in pkl_paths:
         with open(pkl_path, "rb") as file:
             data = pickle.load(file, encoding="latin1")
+        
+        index = int(pkl_path.stem)
+        if index >= len(mp_frames):
+            print(f"Warning: Index {index} out of bounds for mp_frames with length {len(mp_frames)}")
+            continue  # Skip this iteration if index is out of bounds
+
         hand_pca.append(data[f"{hand}_hand_pose"])
-        weights.append(mp_frames[int(pkl_path.stem)])
+        weights.append(mp_frames[index])
+        
+        # Debugging information
+        print(f"Processing: {pkl_path.stem}")
+        print(f"Index: {index}")
+        print(f"Weight: {mp_frames[index]}")
 
     if len(hand_pca) == 0:
         return np.zeros((1, 12), dtype=np.float32)
+    
+    if np.sum(weights) == 0:
+        print("Warning: All weights sum to zero, using equal weights.")
+        weights = np.ones(len(weights))
+    
     return np.average(hand_pca, axis=0, weights=weights)
+
 
 
 def find_average(result_path, hand, mp_frames, sign_class, segment, out_prefix=""):

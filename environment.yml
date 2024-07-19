@@ -19,7 +19,7 @@ dependencies:
   - pytorch
   - pytorch-cuda
   - pytorch3d::pytorch3d
-  - scikit-learn
+  - scikit-learn==0.24.2
   - torchvision
   - tqdm
   - trimesh
@@ -37,3 +37,5 @@ dependencies:
     - python-ffmpeg
     - networkx==2.5.1
     - pyrender==0.1.23
+    - logutu==0.7.2
+    - megaconf==2.3.0

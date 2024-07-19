@@ -1,5 +1,4 @@
 import json
-
 import numpy as np
 import tqdm.auto as tqdm
 from PIL import Image
@@ -14,6 +13,11 @@ def run_vitpose(*, images_folder, output_folder):
 
     for image_path in tqdm.tqdm(sorted(images_folder.glob("*"))):
         im = Image.open(image_path)
+
+        # Convert image to RGB if it has an alpha channel
+        if im.mode == 'RGBA':
+            im = im.convert('RGB')
+
         x1, y1, x2, y2 = det_model(im, classes=0, max_det=1, verbose=False)[0].boxes.xyxy[0].tolist()
         pose_preds = pose_model([np.array(im.crop((x1, y1, x2, y2)))])[0]
         pose_preds[:, 0] += y1
@@ -23,7 +27,7 @@ def run_vitpose(*, images_folder, output_folder):
             draw_points_and_skeleton(
                 np.array(im).copy(),
                 pose_preds,
-                joints_dict()["coco"]["skeleton"],
+                joints_dict()["coco17"]["skeleton"],
                 person_index=0,
                 points_color_palette="gist_rainbow",
                 skeleton_color_palette="jet",
