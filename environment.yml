@@ -12,9 +12,7 @@ dependencies:
   - fastai::opencv-python-headless
   - gdown
   - kornia
-  - loguru
   - numpy
-  - omegaconf
   - openh264
   - pytorch
   - pytorch-cuda
@@ -35,7 +33,7 @@ dependencies:
     - smplx
     - ultralytics
     - python-ffmpeg
-    - networkx==2.5.1
+    - networkx==2.2
     - pyrender==0.1.23
-    - logutu==0.7.2
-    - megaconf==2.3.0
+    - loguru==0.7.2
+    - omegaconf==2.3.0

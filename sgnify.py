@@ -5,6 +5,9 @@ import shutil
 from pathlib import Path
 from subprocess import run
 
+import gc
+import torch
+
 import numpy as np
 import tqdm.auto as tqdm
 
@@ -46,13 +49,20 @@ def compute_smpl_x_poses(*, rps_folder, hand, result_folder, images_folder, vali
         rps_keypoint_path.unlink(missing_ok=True)
         rps_keypoint_path.symlink_to(mp_keypoints_path)
 
-        call_smplify_x(data_folder=rps_folder, output_folder=result_folder.joinpath("rps", hand))
+        try:
+            # Clear GPU memory
+            torch.cuda.empty_cache()
+            gc.collect()
+            # Run SMPLify-X
+            call_smplify_x(data_folder=rps_folder, output_folder=result_folder.joinpath("rps", hand))
+        except torch.cuda.OutOfMemoryError:
+            print("CUDA out of memory. Switching to CPU for this frame.")
+            call_smplify_x_cpu(data_folder=rps_folder, output_folder=result_folder.joinpath("rps", hand))
 
         rps_image_path.unlink()
         rps_keypoint_path.unlink()
 
     return valid_frames
-
 
 def call_smplify_x(*, data_folder, output_folder):
     return run(
@@ -69,6 +79,22 @@ def call_smplify_x(*, data_folder, output_folder):
         check=True,
     )
 
+def call_smplify_x_cpu(*, data_folder, output_folder):
+    return run(
+        [
+            "python",
+            "smplifyx/main.py",
+            "--config",
+            "cfg_files/fit_smplifyx_ref_sv.yaml",
+            "--data_folder",
+            data_folder,
+            "--output_folder",
+            output_folder,
+            "--device",
+            "cpu",  # Adding an option to switch to CPU
+        ],
+        check=True,
+    )
 
 def call_sgnify_0(
     *,

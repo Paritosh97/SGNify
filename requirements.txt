@@ -1,0 +1,28 @@
+-e ./spectre/external/face_alignment
+-e ./spectre/external/face_detection
+git+https://github.com/muelea/selfcontact.git
+git+https://github.com/nghorbani/ViTPose.git
+git+https://github.com/facebookresearch/pytorch3d.git
+human-body-prior
+importlib-resources
+mediapipe
+smplx
+ultralytics
+python-ffmpeg
+networkx==2.2
+pyrender==0.1.23
+loguru==0.7.2
+omegaconf==2.3.0
+torch
+torchvision
+torchaudio
+opencv-python-headless
+gdown
+kornia
+scikit-learn==0.24.2
+tqdm
+trimesh
+yacs
+numpy
+einops
+configargparse
