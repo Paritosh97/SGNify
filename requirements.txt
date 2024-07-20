@@ -9,7 +9,7 @@ mediapipe
 smplx
 ultralytics
 python-ffmpeg
-networkx==2.2
+networkx
 pyrender==0.1.23
 loguru==0.7.2
 omegaconf==2.3.0
@@ -19,7 +19,7 @@ torchaudio
 opencv-python-headless
 gdown
 kornia
-scikit-learn==0.24.2
+scikit-learn
 tqdm
 trimesh
 yacs
