@@ -1,11 +1,10 @@
 import json
 import pickle
-
 import numpy as np
 import scipy
-
+from pathlib import Path
+from sklearn.impute import SimpleImputer
 from utils.rps import find_rps
-
 
 def compute_sign_class(*, result_folder, openpose_folder, segment_path, sign_class_path):
     find_rps(result_path=result_folder, sign_class="-1", out_prefix="sign_classification", segment_path=segment_path)
@@ -43,7 +42,21 @@ def compute_sign_class(*, result_folder, openpose_folder, segment_path, sign_cla
 
     v5 = max(scipy.spatial.distance.cosine(right_1, right_2), scipy.spatial.distance.cosine(left_1, left_2))
 
+    # Preprocessing step: Handle NaN or infinite values
+    input_data = np.array([[v1, v3, v5]])
+
+    # Check for NaN or infinite values
+    if np.any(np.isnan(input_data)) or np.any(np.isinf(input_data)):
+        raise ValueError("Input contains NaN or infinite values")
+
+    # Optionally, impute NaN values with the mean of the column
+    imputer = SimpleImputer(strategy='mean')
+    input_data = imputer.fit_transform(input_data)
+
+    # Optionally, scale the data if values are too large
+    input_data = np.clip(input_data, a_min=-1e5, a_max=1e5)
+
     with open("data/sign_classifier.pkl", "rb") as file:
         clf = pickle.load(file)
 
-    sign_class_path.write_text(clf.predict([[v1, v3, v5]])[0][:2])
+    sign_class_path.write_text(clf.predict(input_data)[0][:2])

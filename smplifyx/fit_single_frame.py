@@ -1,52 +1,15 @@
-# -*- coding: utf-8 -*-
-
-# Max-Planck-Gesellschaft zur Förderung der Wissenschaften e.V. (MPG) is
-# holder of all proprietary rights on this computer program.
-# You can only use this computer program if you have closed
-# a license agreement with MPG or you get the right to use the computer
-# program from someone who is authorized to grant you that right.
-# Any use of the computer program without a valid license is prohibited and
-# liable to prosecution.
-#
-# Copyright©2019 Max-Planck-Gesellschaft zur Förderung
-# der Wissenschaften e.V. (MPG). acting on behalf of its Max Planck Institute
-# for Intelligent Systems and the Max Planck Institute for Biological
-# Cybernetics. All rights reserved.
-#
-# Contact: ps-license@tuebingen.mpg.de
-
-from __future__ import absolute_import
-from __future__ import print_function
-from __future__ import division
-
-
 import time
-try:
-    import cPickle as pickle
-except ImportError:
-    import pickle
-
-import sys
-import os
-import os.path as osp
-
+import pickle
 import numpy as np
 import torch
-
 from tqdm import tqdm
-
 from collections import defaultdict
 import copy
-
 import cv2
 import PIL.Image as pil_img
-
-from optimizers import optim_factory
-
-import fitting
-from human_body_prior.tools.model_loader import load_vposer
 import warnings
 import contextlib
+import os  # Added missing import
 
 def fit_single_frame(img,
                      keypoints,
@@ -106,6 +69,10 @@ def fit_single_frame(img,
                      gen_sc_outside_weight=0.0,
                      gen_sc_contact_weight=0.5,
                      **kwargs):
+    from smplifyx.optimizers import optim_factory
+    from smplifyx import fitting
+    from human_body_prior.tools.model_loader import load_vposer
+
     assert batch_size == 1, 'PyTorch L-BFGS only supports batch_size == 1'
 
     device = torch.device('cuda') if use_cuda and torch.cuda.is_available() else torch.device('cpu')
@@ -278,7 +245,7 @@ def fit_single_frame(img,
         if prev_res_path:
             pose_embedding = torch.tensor(prev_params['pose_embedding'].cpu().numpy(), device=device, requires_grad=True) 
 
-        vposer_ckpt = osp.expandvars(vposer_ckpt)
+        vposer_ckpt = os.path.expandvars(vposer_ckpt)
         with open(os.devnull, "w") as f, contextlib.redirect_stdout(f):
             vposer, _ = load_vposer(vposer_ckpt, vp_model='snapshot')
         vposer = vposer.to(device=device)

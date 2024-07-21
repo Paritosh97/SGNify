@@ -488,6 +488,15 @@ def main(args):
 
 
 if __name__ == "__main__":
+    # Get the current PYTHONPATH
+    current_pythonpath = os.environ.get('PYTHONPATH', '')
+    # Get the current working directory
+    new_path = os.getcwd()
+    # Update the PYTHONPATH
+    if current_pythonpath:
+        os.environ['PYTHONPATH'] = f"{new_path}:{current_pythonpath}"
+    else:
+        os.environ['PYTHONPATH'] = new_path 
     parser = argparse.ArgumentParser()
     parser.add_argument("--video_path", required=False, default="None", help="Path to the video to analyze")
     parser.add_argument("--image_dir_path", required=False, default="None", help="Path to the image folder to analyze")

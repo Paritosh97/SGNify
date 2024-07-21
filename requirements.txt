@@ -9,8 +9,8 @@ mediapipe
 smplx
 ultralytics
 python-ffmpeg
-networkx
-pyrender==0.1.23
+networkx==2.5.1
+pyrender==0.1.45
 loguru==0.7.2
 omegaconf==2.3.0
 torch
