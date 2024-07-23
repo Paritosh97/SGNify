@@ -44,7 +44,7 @@ class TrustRegionNewtonCG(optim.Optimizer):
                 initial_trust_radius: float
                     The initial value for the trust region
                 eta: float
-                    Minimum improvement ration for accepting a step
+                    Minimum improvement ratio for accepting a step
                 gtol: float
                     Gradient tolerance for stopping the optimization
         '''
@@ -60,19 +60,12 @@ class TrustRegionNewtonCG(optim.Optimizer):
         self._params = self.param_groups[0]['params']
 
     @torch.enable_grad()
-    def _compute_hessian_vector_product(
-            self,
-            gradient: Tensor,
-            p: Tensor) -> Tensor:
-
+    def _compute_hessian_vector_product(self, gradient: Tensor, p: Tensor) -> Tensor:
         hess_vp = autograd.grad(
             torch.sum(gradient * p, dim=-1), self._params,
             only_inputs=True, retain_graph=True, allow_unused=True)
         return torch.cat(
-            [torch.flatten(vp) for vp in hess_vp], dim=-1)
-        #  hess_vp = torch.cat(
-            #  [torch.flatten(vp) for vp in hess_vp], dim=-1)
-        #  return torch.flatten(hess_vp)
+            [torch.flatten(vp) for vp in hess_vp if vp is not None], dim=-1)
 
     def _gather_flat_grad(self) -> Tensor:
         ''' Concatenates all gradients into a single gradient vector
@@ -138,26 +131,16 @@ class TrustRegionNewtonCG(optim.Optimizer):
         return ratio
 
     @torch.no_grad()
-    def _quad_model(
-            self,
-            p: Tensor,
-            loss: float,
-            gradient: Tensor,
-            hess_vp: Tensor) -> float:
+    def _quad_model(self, p: Tensor, loss: float, gradient: Tensor, hess_vp: Tensor) -> float:
         ''' Returns the value of the local quadratic approximation
         '''
         return (loss + torch.flatten(gradient * p).sum(dim=-1) +
                 0.5 * torch.flatten(hess_vp * p).sum(dim=-1))
 
     @torch.no_grad()
-    def calc_boundaries(
-            self,
-            iterate: Tensor,
-            direction: Tensor,
-            trust_radius: float) -> Tuple[Tensor, Tensor]:
+    def calc_boundaries(self, iterate: Tensor, direction: Tensor, trust_radius: float) -> Tuple[Tensor, Tensor]:
         ''' Calculates the offset to the boundaries of the trust region
         '''
-
         a = torch.sum(direction ** 2, dim=-1)
         b = 2 * torch.sum(direction * iterate, dim=-1)
         c = torch.sum(iterate ** 2, dim=-1) - trust_radius ** 2
@@ -170,11 +153,7 @@ class TrustRegionNewtonCG(optim.Optimizer):
             return [tb, ta]
 
     @torch.no_grad()
-    def _solve_trust_reg_subproblem(
-            self,
-            loss: float,
-            flat_grad: Tensor,
-            trust_radius: float) -> Tuple[Tensor, bool]:
+    def _solve_trust_reg_subproblem(self, loss: float, flat_grad: Tensor, trust_radius: float) -> Tuple[Tensor, bool]:
         ''' Solves the quadratic subproblem in the trust region
         '''
 
@@ -198,90 +177,70 @@ class TrustRegionNewtonCG(optim.Optimizer):
 
         # Iterate to solve the subproblem
         while True:
-            # Calculate the Hessian-Vector product
-            #  start = time.time()
-            hessian_vec_prod = self._compute_hessian_vector_product(
-                flat_grad, direction
-            )
-            #  torch.cuda.synchronize()
-            #  print('Hessian Vector Product', time.time() - start)
+            try:
+                # Calculate the Hessian-Vector product
+                hessian_vec_prod = self._compute_hessian_vector_product(flat_grad, direction)
 
-            # This term is equal to p^T * H * p
-            #  start = time.time()
-            hevp_dot_prod = torch.sum(hessian_vec_prod * direction)
-            #  print('p^T H p', time.time() - start)
+                # This term is equal to p^T * H * p
+                hevp_dot_prod = torch.sum(hessian_vec_prod * direction)
 
-            # If non-positive curvature
-            if hevp_dot_prod.item() <= 0:
-                # Find boundaries and select minimum
-                #  start = time.time()
-                ta, tb = self.calc_boundaries(iterate, direction, trust_radius)
-                pa = iterate + ta * direction
-                pb = iterate + tb * direction
+                # If non-positive curvature
+                if hevp_dot_prod.item() <= 0:
+                    # Find boundaries and select minimum
+                    ta, tb = self.calc_boundaries(iterate, direction, trust_radius)
+                    pa = iterate + ta * direction
+                    pb = iterate + tb * direction
 
-                # Calculate the point on the boundary with the smallest value
-                bound1_val = self._quad_model(pa, loss, flat_grad,
-                                              hessian_vec_prod)
-                bound2_val = self._quad_model(pb, loss, flat_grad,
-                                              hessian_vec_prod)
-                #  torch.cuda.synchronize()
-                #  print('First if', time.time() - start)
-                #  print()
-                if bound1_val.item() < bound2_val.item():
-                    return pa, True
-                else:
-                    return pb, True
+                    # Calculate the point on the boundary with the smallest value
+                    bound1_val = self._quad_model(pa, loss, flat_grad, hessian_vec_prod)
+                    bound2_val = self._quad_model(pb, loss, flat_grad, hessian_vec_prod)
 
-            # The squared euclidean norm of the residual needed for the CG
-            # update
-            #  start = time.time()
-            residual_sq_norm = torch.sum(residual * residual, dim=-1)
+                    if bound1_val.item() < bound2_val.item():
+                        return pa, True
+                    else:
+                        return pb, True
 
-            # Compute the step size for the CG algorithm
-            cg_step_size = residual_sq_norm / hevp_dot_prod
+                # The squared euclidean norm of the residual needed for the CG update
+                residual_sq_norm = torch.sum(residual * residual, dim=-1)
 
-            # Update the point
-            next_iterate = iterate + cg_step_size * direction
+                # Compute the step size for the CG algorithm
+                cg_step_size = residual_sq_norm / hevp_dot_prod
 
-            iterate_norm = torch.norm(next_iterate, dim=-1)
-            #  torch.cuda.synchronize()
-            #  print('CG Updates', time.time() - start)
+                # Update the point
+                next_iterate = iterate + cg_step_size * direction
 
-            # If the point is outside of the trust region project it on the
-            # border and return
-            if iterate_norm.item() >= trust_radius:
-                #  start = time.time()
-                ta, tb = self.calc_boundaries(iterate, direction, trust_radius)
-                p_boundary = iterate + tb * direction
+                iterate_norm = torch.norm(next_iterate, dim=-1)
 
-                #  torch.cuda.synchronize()
-                #  print('Second if', time.time() - start)
-                #  print()
-                return p_boundary, True
+                # If the point is outside of the trust region project it on the
+                # border and return
+                if iterate_norm.item() >= trust_radius:
+                    ta, tb = self.calc_boundaries(iterate, direction, trust_radius)
+                    p_boundary = iterate + tb * direction
+                    return p_boundary, True
 
-            #  start = time.time()
-            # Update the residual
-            next_residual = residual + cg_step_size * hessian_vec_prod
-            #  torch.cuda.synchronize()
-            #  print('Residual update', time.time() - start)
-            # If the residual is small enough, exit
-            if torch.norm(next_residual, dim=-1).item() < tolerance:
-                #  print()
-                return next_iterate, False
+                # Update the residual
+                next_residual = residual + cg_step_size * hessian_vec_prod
 
-            #  start = time.time()
-            beta = torch.sum(next_residual ** 2, dim=-1) / residual_sq_norm
-            # Compute the new search direction
-            direction = (-next_residual + beta * direction).squeeze()
-            if torch.isnan(direction).sum() > 0:
-                raise RuntimeError
+                # If the residual is small enough, exit
+                if torch.norm(next_residual, dim=-1).item() < tolerance:
+                    return next_iterate, False
 
-            iterate = next_iterate
-            residual = next_residual
-            #  torch.cuda.synchronize()
-            #  print('Replacing vectors', time.time() - start)
-            #  print(trust_radius)
-            #  print()
+                beta = torch.sum(next_residual ** 2, dim=-1) / residual_sq_norm
+                # Compute the new search direction
+                direction = (-next_residual + beta * direction).squeeze()
+                if torch.isnan(direction).sum() > 0:
+                    raise RuntimeError("NaN detected in the direction vector")
+
+                iterate = next_iterate
+                residual = next_residual
+
+            except RuntimeError as e:
+                print(f"RuntimeError in _solve_trust_reg_subproblem: {e}")
+                print(f"iterate: {iterate}")
+                print(f"residual: {residual}")
+                print(f"direction: {direction}")
+                print(f"trust_radius: {trust_radius}")
+                raise
 
     def step(self, closure) -> float:
         with warnings.catch_warnings():
