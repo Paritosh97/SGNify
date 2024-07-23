@@ -3,7 +3,7 @@ import json
 import pickle
 import shutil
 from pathlib import Path
-from subprocess import run
+from subprocess import run, CalledProcessError
 import os
 import gc
 import torch
@@ -35,7 +35,6 @@ def compute_smpl_x_poses(*, rps_folder, hand, result_folder, images_folder, vali
     shutil.rmtree(rps_keypoints_folder, ignore_errors=True)
     rps_keypoints_folder.mkdir(parents=True)
 
-    # Do it inside a loop due to ncg memory issue:
     for frame_int in tqdm.tqdm(valid_frames):
         frame_prefix = f"{frame_int:03}"
         rps_image_path = rps_images_folder.joinpath(f"{frame_prefix}.png")
@@ -49,15 +48,23 @@ def compute_smpl_x_poses(*, rps_folder, hand, result_folder, images_folder, vali
         rps_keypoint_path.unlink(missing_ok=True)
         rps_keypoint_path.symlink_to(mp_keypoints_path)
 
+        output_file = result_folder.joinpath("rps", hand, f"{frame_prefix}.pkl")
+        if output_file.exists():
+            print(f"Result for frame {frame_int} already exists. Skipping...")
+            continue
+
         try:
-            # Clear GPU memory
             torch.cuda.empty_cache()
             gc.collect()
-            # Run SMPLify-X
             call_smplify_x(data_folder=rps_folder, output_folder=result_folder.joinpath("rps", hand))
         except torch.cuda.OutOfMemoryError:
             print("CUDA out of memory. Switching to CPU for this frame.")
-            call_smplify_x_cpu(data_folder=rps_folder, output_folder=result_folder.joinpath("rps", hand))
+            try:
+                call_smplify_x_cpu(data_folder=rps_folder, output_folder=result_folder.joinpath("rps", hand))
+            except CalledProcessError as e:
+                print(f"Error processing frame {frame_int} on CPU: {e}")
+        except CalledProcessError as e:
+            print(f"Error processing frame {frame_int} on GPU: {e}")
 
         rps_image_path.unlink()
         rps_keypoint_path.unlink()
@@ -91,7 +98,7 @@ def call_smplify_x_cpu(*, data_folder, output_folder):
             "--output_folder",
             output_folder,
             "--device",
-            "cpu",  # Adding an option to switch to CPU
+            "cpu",
         ],
         check=True,
     )
@@ -260,33 +267,40 @@ def run_sgnify(
             right_reference_weight = right_reference_weight / 5
             symmetry_weight = symmetry_weight / 5
 
-        if frame_int == 1:
-            call_sgnify_0(
-                output_folder=output_folder,
-                data_folder=tmp_data_path,
-                beta_path=beta_path,
-                expression_path=expression_path,
-                left_handpose_path=left_handpose_path,
-                right_handpose_path=right_handpose_path,
-                left_reference_weight=left_reference_weight,
-                right_reference_weight=right_reference_weight,
-                use_symmetry=use_symmetry,
-                symmetry_weight=symmetry_weight,
-            )
-        else:
-            call_sgnify(
-                output_folder=output_folder,
-                data_folder=tmp_data_path,
-                prev_res_path=prev_res_path,
-                expression_path=expression_path,
-                use_symmetry=use_symmetry,
-                symmetry_weight=symmetry_weight,
-                left_handpose_path=left_handpose_path,
-                right_handpose_path=right_handpose_path,
-                left_reference_weight=left_reference_weight,
-                right_reference_weight=right_reference_weight,
-            )
+        output_file = output_folder.joinpath("results", f"{frame_int:03}.pkl")
+        if output_file.exists():
+            print(f"Result for frame {frame_int} already exists. Skipping...")
+            continue
 
+        try:
+            if frame_int == 1:
+                call_sgnify_0(
+                    output_folder=output_folder,
+                    data_folder=tmp_data_path,
+                    beta_path=beta_path,
+                    expression_path=expression_path,
+                    left_handpose_path=left_handpose_path,
+                    right_handpose_path=right_handpose_path,
+                    left_reference_weight=left_reference_weight,
+                    right_reference_weight=right_reference_weight,
+                    use_symmetry=use_symmetry,
+                    symmetry_weight=symmetry_weight,
+                )
+            else:
+                call_sgnify(
+                    output_folder=output_folder,
+                    data_folder=tmp_data_path,
+                    prev_res_path=prev_res_path,
+                    expression_path=expression_path,
+                    use_symmetry=use_symmetry,
+                    symmetry_weight=symmetry_weight,
+                    left_handpose_path=left_handpose_path,
+                    right_handpose_path=right_handpose_path,
+                    left_reference_weight=left_reference_weight,
+                    right_reference_weight=right_reference_weight,
+                )
+        except CalledProcessError as e:
+            print(f"Error processing frame {frame_int}: {e}")
 
 def main(args, resume=False):
     if args.video_path != "None":
@@ -329,23 +343,14 @@ def main(args, resume=False):
 
     sign_class_path = result_folder.joinpath("sign_class.txt")
 
-    # Invariance constraint
     reference = 90
     symmetry = 90
 
-    # PRE-PROCESS:
     if resume:
         print("Resuming from after SPECTRE...")
         if args.sign_class == "-1":
             args.sign_class = sign_class_path.read_text().strip()
     else:
-        # 0. Extract frames from video
-        # 1. Run vitpose and mediapipe on all frames
-        # 2. Segment video
-        # 3. Run SMPLify-X on frames selected
-        # 4. Find RPS
-        # 5. Find shape betas
-        # 6. Run SPECTRE
         if args.skip_preprocessing:
             print("Skipping preprocessing...")
             assert args.sign_class in ["0a", "0b", "1a", "1b", "2a", "2b", "3a", "3b", "-1"]
@@ -354,20 +359,15 @@ def main(args, resume=False):
                 args.sign_class = sign_class_path.read_text().strip()
         else:
             if args.video_path != "None":
-                # 0. Extract frames from video
                 print("Extracting frames with FFmpeg...")
                 extract_frames(video_path=video_path, output_folder=result_folder.joinpath("images"))
             else:
-                # 0. Copy frames from folder
                 print("Copying frames...")
                 copy_frames(image_dir_path=image_dir_path, output_folder=result_folder.joinpath("images"))
 
-            # 1. Run VitPose and MediaPipe on each frame
-            # VitPose
             print("Extracting 2D keypoints with ViTPose...")
             run_vitpose(images_folder=images_folder, output_folder=openpose_folder)
 
-            # MediaPipe
             print("Extracting 2D keypoints with MediaPipe for RPS...")
             confidences = np.arange(0.6, 1.0, 0.1)
             for confidence in confidences:
@@ -397,7 +397,6 @@ def main(args, resume=False):
             with weights_path.open("wb") as json_file:
                 pickle.dump(output, json_file)
 
-            # 2. Segment video
             print("Segmenting signs...")
             segment_signs(openpose_folder=openpose_folder, output_path=segment_path)
 
@@ -405,9 +404,6 @@ def main(args, resume=False):
                 segment = json.load(json_file)
             reconstruct_left, reconstruct_right = compute_valid_frames(result_folder, segment)
 
-            # 3. Run SMPLify-X on frames selected that have MP keypoints
-            # This provides the RPS and betas
-            # Link images and keypoints of the selected frames in a new folder
             if np.any(valid_frames_right > -1):
                 print("Running SMPLify-X inside segmentation window for right hand...")
                 compute_smpl_x_poses(
@@ -441,8 +437,6 @@ def main(args, resume=False):
             if args.sign_class == "-1":
                 args.sign_class = sign_class_path.read_text().strip()
 
-            # 4. Find RPS (for now we do not have a weighted average)
-            # for now we only have the rps for subclasses A
             print("Finding the RPS using valid MediaPipe frames...")
             compute_rps(
                 sign_class=args.sign_class,
@@ -453,15 +447,12 @@ def main(args, resume=False):
                 segment_path=segment_path,
             )
 
-            # 5. Find betas
             print("Finding betas...")
             compute_betas(rps_folder=rps_folder, beta_path=beta_path)
 
-            # 6. Run SPECTRE
             print("Running SPECTRE...")
             call_spectre(images_folder=images_folder, output_folder=spectre_folder)
 
-            # MediaPipe
             print("Extracting 2D keypoints with MediaPipe for SGNify...")
             shutil.rmtree(mediapipe_folder, ignore_errors=True)
             shutil.copytree(openpose_folder, mediapipe_folder)
@@ -469,7 +460,6 @@ def main(args, resume=False):
                 output_folder=result_folder, confidence=0.5, static_image_mode=False, keypoint_folder=mediapipe_folder
             )
 
-    # Symmetry constraint
     use_symmetry = args.sign_class in ("1a", "1b", "2a")
 
     print("Running SGNify...")
@@ -486,7 +476,6 @@ def main(args, resume=False):
         segment_path=segment_path,
     )
 
-    # Create video with the results
     print("Creating video...")
     create_video(
         images_folder=output_folder.joinpath("images", "*.png"),
@@ -494,17 +483,13 @@ def main(args, resume=False):
     )
 
 
-
 if __name__ == "__main__":
-    # Get the current PYTHONPATH
     current_pythonpath = os.environ.get('PYTHONPATH', '')
-    # Get the current working directory
     new_path = os.getcwd()
-    # Update the PYTHONPATH
     if current_pythonpath:
         os.environ['PYTHONPATH'] = f"{new_path}:{current_pythonpath}"
     else:
-        os.environ['PYTHONPATH'] = new_path 
+        os.environ['PYTHONPATH'] = new_path
     parser = argparse.ArgumentParser()
     parser.add_argument("--video_path", required=False, default="None", help="Path to the video to analyze")
     parser.add_argument("--image_dir_path", required=False, default="None", help="Path to the image folder to analyze")
