@@ -295,6 +295,8 @@ def main(args, resume=False):
     elif args.image_dir_path != "None":
         image_dir_path = Path(args.image_dir_path).resolve()
         output_folder = Path(args.output_folder).joinpath(image_dir_path.stem).resolve()
+    else:
+        output_folder = Path(args.output_folder).resolve()
 
     output_folder.mkdir(exist_ok=True, parents=True)
 
@@ -455,17 +457,17 @@ def main(args, resume=False):
             print("Finding betas...")
             compute_betas(rps_folder=rps_folder, beta_path=beta_path)
 
-        # 6. Run SPECTRE
-        print("Running SPECTRE...")
-        call_spectre(images_folder=images_folder, output_folder=spectre_folder)
+    # 6. Run SPECTRE
+    print("Running SPECTRE...")
+    call_spectre(images_folder=images_folder, output_folder=spectre_folder)
 
-        # MediaPipe
-        print("Extracting 2D keypoints with MediaPipe for SGNify...")
-        shutil.rmtree(mediapipe_folder, ignore_errors=True)
-        shutil.copytree(openpose_folder, mediapipe_folder)
-        run_mediapipe_hands(
-            output_folder=result_folder, confidence=0.5, static_image_mode=False, keypoint_folder=mediapipe_folder
-        )
+    # MediaPipe
+    print("Extracting 2D keypoints with MediaPipe for SGNify...")
+    shutil.rmtree(mediapipe_folder, ignore_errors=True)
+    shutil.copytree(openpose_folder, mediapipe_folder)
+    run_mediapipe_hands(
+        output_folder=result_folder, confidence=0.5, static_image_mode=False, keypoint_folder=mediapipe_folder
+    )
 
     # Symmetry constraint
     use_symmetry = args.sign_class in ("1a", "1b", "2a")
