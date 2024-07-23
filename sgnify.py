@@ -210,6 +210,21 @@ def call_spectre(*, images_folder, output_folder):
         check=True,
     )
 
+def clean_data(data):
+    if isinstance(data, np.ndarray):
+        data = np.nan_to_num(data, nan=0.0)
+    elif isinstance(data, pd.DataFrame):
+        data = data.fillna(0.0)
+    return data
+
+def validate_keypoints(keypoints, image_shape):
+    valid_keypoints = []
+    height, width = image_shape[:2]
+    for kp in keypoints:
+        x, y = kp
+        if 0 <= x < width and 0 <= y < height:
+            valid_keypoints.append(kp)
+    return valid_keypoints
 
 def run_sgnify(
     result_folder,
@@ -280,7 +295,6 @@ def run_sgnify(
         retry_count = 0
 
         while retry_count < max_retries and not success:
-            print("Last successful frame:" + str(last_successful_frame))
             try:
                 if frame_int == 1:
                     print(f"Processing frame {frame_int} with call_sgnify_0")
@@ -298,6 +312,11 @@ def run_sgnify(
                     )
                 else:
                     print(f"Processing frame {frame_int} with call_sgnify")
+
+                    # Clean and validate inputs here
+                    prev_res_data = clean_data(prev_res_path)
+                    prev_res_data = validate_keypoints(prev_res_data, (height, width))
+
                     call_sgnify(
                         output_folder=output_folder,
                         data_folder=tmp_data_path,
