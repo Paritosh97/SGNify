@@ -29,12 +29,10 @@ from spectre.src.utils.util import tensor2video
 
 def extract_frames(image_paths):
     face_tracker = FaceTracker()
-
     face_info = collections.defaultdict(list)
 
     for image_path in tqdm(image_paths):
         image = cv2.imread(image_path)
-
         detected_faces = face_tracker.face_detector(image, rgb=False)
         landmarks, scores = face_tracker.landmark_detector(image, detected_faces, rgb=False)
         face_info["bbox"].append(detected_faces)
@@ -80,35 +78,14 @@ def main(args):
 
     image_paths = [str(n) for n in sorted(Path(args.images_folder).glob("*"))]
 
-    # PAOLA: TODO we could avoid to extract the frames again
     landmarks = extract_frames(image_paths)
     if args.crop_face:
         landmarks = landmarks_interpolate(landmarks)
         if landmarks is None:
             print("No faces detected in input {}".format(args.input))
+            return
 
     original_video_length = len(image_paths)
-    """ SPECTRE uses a temporal convolution of size 5.
-    Thus, in order to predict the parameters for a contiguous video with need to
-    process the video in chunks of overlap 2, dropping values which were computed from the
-    temporal kernel which uses pad 'same'. For the start and end of the video we
-    pad using the first and last frame of the video.
-    e.g., consider a video of size 48 frames and we want to predict it in chunks of 20 frames
-    (due to memory limitations). We first pad the video two frames at the start and end using
-    the first and last frames correspondingly, making the video 52 frames length.
-
-    Then we process independently the following chunks:
-    [[ 0  1  2  3  4  5  6  7  8  9 10 11 12 13 14 15 16 17 18 19]
-     [16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35]
-     [32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50 51]]
-
-     In the first chunk, after computing the 3DMM params we drop 0,1 and 18,19, since they were computed
-     from the temporal kernel with padding (we followed the same procedure in training and computed loss
-     only from valid outputs of the temporal kernel) In the second chunk, we drop 16,17 and 34,35, and in
-     the last chunk we drop 32,33 and 50,51. As a result we get:
-     [2..17], [18..33], [34..49] (end included) which correspond to all frames of the original video
-     (removing the initial padding).
-    """
 
     # pad
     image_paths.insert(0, image_paths[0])
@@ -131,13 +108,9 @@ def main(args):
 
     if len(overlapping_indices[-1]) < 5:
         # if the last chunk has less than 5 frames, pad it with the semilast frame
-        overlapping_indices[-2] = overlapping_indices[-2] + overlapping_indices[-1]
-        overlapping_indices[-2] = np.unique(overlapping_indices[-2]).tolist()
-        overlapping_indices = overlapping_indices[:-1]
+        overlapping_indices[-2].extend(overlapping_indices[-1])
+        overlapping_indices.pop()
 
-    overlapping_indices = np.array(overlapping_indices)
-
-    image_paths = np.array(image_paths)  # do this to index with multiple indices
     all_shape_images = []
     all_images = []
     all_poses = []
@@ -149,9 +122,8 @@ def main(args):
             print(
                 "Processing frames {} to {}".format(overlapping_indices[chunk_id][0], overlapping_indices[chunk_id][-1])
             )
-            image_paths_chunk = image_paths[overlapping_indices[chunk_id]]
-
-            landmarks_chunk = landmarks[overlapping_indices[chunk_id]] if args.crop_face else None
+            image_paths_chunk = [image_paths[i] for i in overlapping_indices[chunk_id]]
+            landmarks_chunk = [landmarks[i] for i in overlapping_indices[chunk_id]] if args.crop_face else None
 
             images_list = []
 
@@ -188,12 +160,10 @@ def main(args):
             opdict, visdict = spectre.decode(codedict, rendering=True, vis_lmk=False, return_vis=True)
             all_shape_images.append(visdict["shape_images"].detach().cpu())
             all_images.append(codedict["images"].detach().cpu())
-            # PAOLA: needed for SGNify
             all_poses.append(codedict["pose"].detach().cpu())
             all_expressions.append(codedict["exp"].detach().cpu())
             all_shapes.append(codedict["shape"].detach().cpu())
 
-    # PAOLA: needed for SGNify
     poses = (torch.cat(all_poses, dim=0))[2:-2]  # remove padding
     expressions = (torch.cat(all_expressions, dim=0))[2:-2]  # remove padding
     shapes = (torch.cat(all_shapes, dim=0))[2:-2]  # remove padding
