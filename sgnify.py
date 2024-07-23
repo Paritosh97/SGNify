@@ -7,6 +7,7 @@ from subprocess import run, CalledProcessError
 import os
 import gc
 import torch
+import json
 
 import numpy as np
 import tqdm.auto as tqdm
@@ -221,7 +222,9 @@ def run_sgnify(
     left_interp_folder,
     right_interp_folder,
     segment_path,
+    max_retries=3,  # Number of retries before switching to next strategy
 ):
+    last_successful_frame = 0
     for frame_int in tqdm.trange(1, get_end(result_folder) + 1):
         frame_prefix = f"{frame_int:03}"
         prev_res_path = output_folder.joinpath("results", f"{frame_int-1:03}.pkl")
@@ -267,40 +270,74 @@ def run_sgnify(
             right_reference_weight = right_reference_weight / 5
             symmetry_weight = symmetry_weight / 5
 
-        output_file = output_folder.joinpath("results", f"{frame_int:03}.pkl")
+        output_file = output_folder.joinpath("results", f"{frame_prefix}.pkl")
         if output_file.exists():
             print(f"Result for frame {frame_int} already exists. Skipping...")
+            last_successful_frame = frame_int
             continue
 
-        try:
-            if frame_int == 1:
-                call_sgnify_0(
-                    output_folder=output_folder,
-                    data_folder=tmp_data_path,
-                    beta_path=beta_path,
-                    expression_path=expression_path,
-                    left_handpose_path=left_handpose_path,
-                    right_handpose_path=right_handpose_path,
-                    left_reference_weight=left_reference_weight,
-                    right_reference_weight=right_reference_weight,
-                    use_symmetry=use_symmetry,
-                    symmetry_weight=symmetry_weight,
-                )
-            else:
-                call_sgnify(
-                    output_folder=output_folder,
-                    data_folder=tmp_data_path,
-                    prev_res_path=prev_res_path,
-                    expression_path=expression_path,
-                    use_symmetry=use_symmetry,
-                    symmetry_weight=symmetry_weight,
-                    left_handpose_path=left_handpose_path,
-                    right_handpose_path=right_handpose_path,
-                    left_reference_weight=left_reference_weight,
-                    right_reference_weight=right_reference_weight,
-                )
-        except CalledProcessError as e:
-            print(f"Error processing frame {frame_int}: {e}")
+        success = False
+        retry_count = 0
+
+        while retry_count < max_retries and not success:
+            print("Last successful frame:" + str(last_successful_frame))
+            try:
+                if frame_int == 1:
+                    print(f"Processing frame {frame_int} with call_sgnify_0")
+                    call_sgnify_0(
+                        output_folder=output_folder,
+                        data_folder=tmp_data_path,
+                        beta_path=beta_path,
+                        expression_path=expression_path,
+                        left_handpose_path=left_handpose_path,
+                        right_handpose_path=right_handpose_path,
+                        left_reference_weight=left_reference_weight,
+                        right_reference_weight=right_reference_weight,
+                        use_symmetry=use_symmetry,
+                        symmetry_weight=symmetry_weight,
+                    )
+                else:
+                    print(f"Processing frame {frame_int} with call_sgnify")
+                    call_sgnify(
+                        output_folder=output_folder,
+                        data_folder=tmp_data_path,
+                        prev_res_path=prev_res_path,
+                        expression_path=expression_path,
+                        use_symmetry=use_symmetry,
+                        symmetry_weight=symmetry_weight,
+                        left_handpose_path=left_handpose_path,
+                        right_handpose_path=right_handpose_path,
+                        left_reference_weight=left_reference_weight,
+                        right_reference_weight=right_reference_weight,
+                    )
+                success = True
+                last_successful_frame = frame_int
+            except RuntimeError as e:
+                if "NaN detected in the Hessian-vector product" in str(e):
+                    print(f"NaN detected in frame {frame_int}. Retrying... ({retry_count + 1}/{max_retries})")
+                    retry_count += 1
+                else:
+                    raise
+            except CalledProcessError as e:
+                print(f"Error processing frame {frame_int}: {e}")
+                retry_count += 1
+
+        if not success:
+            print(f"Retry mechanism failed for frame {frame_int}. Trying to use last successful frame {last_successful_frame} as fallback.")
+            if last_successful_frame > 0:
+                last_successful_res_path = output_folder.joinpath("results", f"{last_successful_frame:03}.pkl")
+                try:
+                    shutil.copy(last_successful_res_path, output_file)
+                    print(f"Successfully used last successful frame {last_successful_frame} as fallback for frame {frame_int}.")
+                    success = True
+                except Exception as e:
+                    print(f"Failed to use last successful frame {last_successful_frame} as fallback: {e}")
+
+        if not success:
+            print(f"All strategies failed for frame {frame_int}. Logging this frame.")
+            with open("nan_frames.log", "a") as log_file:
+                log_file.write(f"Failed to process frame {frame_int} after all strategies.\n")
+
 
 def main(args, resume=False):
     if args.video_path != "None":
