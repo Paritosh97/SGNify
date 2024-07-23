@@ -21,14 +21,13 @@ import shutil
 
 import numpy as np
 import pyrender
-import rotation_conversion
+from pytorch3d.transforms import rotation_conversions as rotation_conversion
 import smplx
 import torch
 import trimesh
 from cmd_parser import parse_config
 from scipy.spatial.transform import Rotation as R
 from scipy.spatial.transform import Slerp
-
 
 def key_positions(pkl_paths, model, hand, reference_start, reference_end):
     if hand == "left":

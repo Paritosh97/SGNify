@@ -288,7 +288,7 @@ def run_sgnify(
             )
 
 
-def main(args):
+def main(args, resume=False):
     if args.video_path != "None":
         video_path = Path(args.video_path).resolve()
         output_folder = Path(args.output_folder).joinpath(video_path.stem).resolve()
@@ -332,123 +332,128 @@ def main(args):
     symmetry = 90
 
     # PRE-PROCESS:
-    # 0. Extract frames from video
-    # 1. Run vitpose and mediapipe on all frames
-    # 2. Segment video
-    # 3. Run SMPLify-X on frames selected
-    # 4. Find RPS
-    # 5. Find shape betas
-    # 6. Run SPECTRE
-    if args.skip_preprocessing:
-        print("Skipping preprocessing...")
-        assert args.sign_class in ["0a", "0b", "1a", "1b", "2a", "2b", "3a", "3b", "-1"]
-
+    if resume:
+        print("Resuming from after SPECTRE...")
         if args.sign_class == "-1":
             args.sign_class = sign_class_path.read_text().strip()
     else:
-        if args.video_path != "None":
-            # 0. Extract frames from video
-            print("Extracting frames with FFmpeg...")
-            extract_frames(video_path=video_path, output_folder=result_folder.joinpath("images"))
-        else:
-            # 0. Copy frames from folder
-            print("Copying frames...")
-            copy_frames(image_dir_path=image_dir_path, output_folder=result_folder.joinpath("images"))
-
-        # 1. Run VitPose and MediaPipe on each frame
-        # VitPose
-        print("Extracting 2D keypoints with ViTPose...")
-        run_vitpose(images_folder=images_folder, output_folder=openpose_folder)
-
-        # MediaPipe
-        print("Extracting 2D keypoints with MediaPipe for RPS...")
-        confidences = np.arange(0.6, 1.0, 0.1)
-        for confidence in confidences:
-            mp_folder = result_folder.joinpath("mp_keypoints_{:.1f}".format(confidence))
-            shutil.rmtree(mp_folder, ignore_errors=True)
-            shutil.copytree(openpose_folder, mp_folder)
-            run_mediapipe_hands(
-                output_folder=result_folder, confidence=confidence, static_image_mode=True, keypoint_folder=mp_folder
-            )
-
-        mp_files = ["mp_keypoints_0.6.pkl", "mp_keypoints_0.7.pkl", "mp_keypoints_0.8.pkl", "mp_keypoints_0.9.pkl"]
-        mp_results = []
-        for pkl_file in mp_files:
-            with (result_folder.joinpath(pkl_file)).open("rb") as file:
-                mp_results.append(pickle.load(file))
-
-        valid_frames_right = (np.ones((get_end(result_folder) + 1))) * -1.0
-        valid_frames_left = (np.ones((get_end(result_folder) + 1))) * -1.0
-
-        for weight in range(len(mp_files)):
-            valid_frames_right[list(map(int, mp_results[weight]["Right"]))] = (weight + 1) / 10
-            valid_frames_left[list(map(int, mp_results[weight]["Left"]))] = (weight + 1) / 10
-
-        output = {"Right": valid_frames_right, "Left": valid_frames_left}
-
-        weights_path = result_folder.joinpath("mp_keypoints_weight.pkl")
-        with weights_path.open("wb") as json_file:
-            pickle.dump(output, json_file)
-
+        # 0. Extract frames from video
+        # 1. Run vitpose and mediapipe on all frames
         # 2. Segment video
-        print("Segmenting signs...")
-        segment_signs(openpose_folder=openpose_folder, output_path=segment_path)
+        # 3. Run SMPLify-X on frames selected
+        # 4. Find RPS
+        # 5. Find shape betas
+        # 6. Run SPECTRE
+        if args.skip_preprocessing:
+            print("Skipping preprocessing...")
+            assert args.sign_class in ["0a", "0b", "1a", "1b", "2a", "2b", "3a", "3b", "-1"]
 
-        with segment_path.open() as json_file:
-            segment = json.load(json_file)
-        reconstruct_left, reconstruct_right = compute_valid_frames(result_folder, segment)
+            if args.sign_class == "-1":
+                args.sign_class = sign_class_path.read_text().strip()
+        else:
+            if args.video_path != "None":
+                # 0. Extract frames from video
+                print("Extracting frames with FFmpeg...")
+                extract_frames(video_path=video_path, output_folder=result_folder.joinpath("images"))
+            else:
+                # 0. Copy frames from folder
+                print("Copying frames...")
+                copy_frames(image_dir_path=image_dir_path, output_folder=result_folder.joinpath("images"))
 
-        # 3. Run SMPLify-X on frames selected that have MP keypoints
-        # This provides the RPS and betas
-        # Link images and keypoints of the selected frames in a new folder
-        if np.any(valid_frames_right > -1):
-            print("Running SMPLify-X inside segmentation window for right hand...")
-            compute_smpl_x_poses(
-                rps_folder=rps_folder,
+            # 1. Run VitPose and MediaPipe on each frame
+            # VitPose
+            print("Extracting 2D keypoints with ViTPose...")
+            run_vitpose(images_folder=images_folder, output_folder=openpose_folder)
+
+            # MediaPipe
+            print("Extracting 2D keypoints with MediaPipe for RPS...")
+            confidences = np.arange(0.6, 1.0, 0.1)
+            for confidence in confidences:
+                mp_folder = result_folder.joinpath("mp_keypoints_{:.1f}".format(confidence))
+                shutil.rmtree(mp_folder, ignore_errors=True)
+                shutil.copytree(openpose_folder, mp_folder)
+                run_mediapipe_hands(
+                    output_folder=result_folder, confidence=confidence, static_image_mode=True, keypoint_folder=mp_folder
+                )
+
+            mp_files = ["mp_keypoints_0.6.pkl", "mp_keypoints_0.7.pkl", "mp_keypoints_0.8.pkl", "mp_keypoints_0.9.pkl"]
+            mp_results = []
+            for pkl_file in mp_files:
+                with (result_folder.joinpath(pkl_file)).open("rb") as file:
+                    mp_results.append(pickle.load(file))
+
+            valid_frames_right = (np.ones((get_end(result_folder) + 1))) * -1.0
+            valid_frames_left = (np.ones((get_end(result_folder) + 1))) * -1.0
+
+            for weight in range(len(mp_files)):
+                valid_frames_right[list(map(int, mp_results[weight]["Right"]))] = (weight + 1) / 10
+                valid_frames_left[list(map(int, mp_results[weight]["Left"]))] = (weight + 1) / 10
+
+            output = {"Right": valid_frames_right, "Left": valid_frames_left}
+
+            weights_path = result_folder.joinpath("mp_keypoints_weight.pkl")
+            with weights_path.open("wb") as json_file:
+                pickle.dump(output, json_file)
+
+            # 2. Segment video
+            print("Segmenting signs...")
+            segment_signs(openpose_folder=openpose_folder, output_path=segment_path)
+
+            with segment_path.open() as json_file:
+                segment = json.load(json_file)
+            reconstruct_left, reconstruct_right = compute_valid_frames(result_folder, segment)
+
+            # 3. Run SMPLify-X on frames selected that have MP keypoints
+            # This provides the RPS and betas
+            # Link images and keypoints of the selected frames in a new folder
+            if np.any(valid_frames_right > -1):
+                print("Running SMPLify-X inside segmentation window for right hand...")
+                compute_smpl_x_poses(
+                    rps_folder=rps_folder,
+                    result_folder=result_folder,
+                    images_folder=images_folder,
+                    valid_frames=reconstruct_right,
+                    weights=valid_frames_right,
+                    hand="right",
+                )
+
+            if np.any(valid_frames_left > -1):
+                print("Running SMPLify-X inside segmentation window for left hand...")
+                compute_smpl_x_poses(
+                    rps_folder=rps_folder,
+                    result_folder=result_folder,
+                    images_folder=images_folder,
+                    valid_frames=reconstruct_left,
+                    weights=valid_frames_left,
+                    hand="left",
+                )
+
+            print("Finding sign class...")
+            compute_sign_class(
+                openpose_folder=openpose_folder,
                 result_folder=result_folder,
-                images_folder=images_folder,
-                valid_frames=reconstruct_right,
-                weights=valid_frames_right,
-                hand="right",
+                segment_path=segment_path,
+                sign_class_path=sign_class_path,
             )
 
-        if np.any(valid_frames_left > -1):
-            print("Running SMPLify-X inside segmentation window for left hand...")
-            compute_smpl_x_poses(
+            if args.sign_class == "-1":
+                args.sign_class = sign_class_path.read_text().strip()
+
+            # 4. Find RPS (for now we do not have a weighted average)
+            # for now we only have the rps for subclasses A
+            print("Finding the RPS using valid MediaPipe frames...")
+            compute_rps(
+                sign_class=args.sign_class,
                 rps_folder=rps_folder,
                 result_folder=result_folder,
-                images_folder=images_folder,
-                valid_frames=reconstruct_left,
-                weights=valid_frames_left,
-                hand="left",
+                right_interp_folder=right_interp_folder,
+                left_interp_folder=left_interp_folder,
+                segment_path=segment_path,
             )
 
-        print("Finding sign class...")
-        compute_sign_class(
-            openpose_folder=openpose_folder,
-            result_folder=result_folder,
-            segment_path=segment_path,
-            sign_class_path=sign_class_path,
-        )
-
-        if args.sign_class == "-1":
-            args.sign_class = sign_class_path.read_text().strip()
-
-        # 4. Find RPS (for now we do not have a weighted average)
-        # for now we only have the rps for subclasses A
-        print("Finding the RPS using valid MediaPipe frames...")
-        compute_rps(
-            sign_class=args.sign_class,
-            rps_folder=rps_folder,
-            result_folder=result_folder,
-            right_interp_folder=right_interp_folder,
-            left_interp_folder=left_interp_folder,
-            segment_path=segment_path,
-        )
-
-        # 5. Find betas
-        print("Finding betas...")
-        compute_betas(rps_folder=rps_folder, beta_path=beta_path)
+            # 5. Find betas
+            print("Finding betas...")
+            compute_betas(rps_folder=rps_folder, beta_path=beta_path)
 
         # 6. Run SPECTRE
         print("Running SPECTRE...")
@@ -487,6 +492,7 @@ def main(args):
     )
 
 
+
 if __name__ == "__main__":
     # Get the current PYTHONPATH
     current_pythonpath = os.environ.get('PYTHONPATH', '')
@@ -512,6 +518,7 @@ if __name__ == "__main__":
     )
     parser.add_argument("--skip_preprocessing", required=False, action="store_true", help="Skip preprocessing of data")
     parser.add_argument("--quantitative_data", required=False, action="store_true", help="Analyze vicon frames")
+    parser.add_argument("--resume", required=False, action="store_true", help="Resume from the last completed stage")
 
     args = parser.parse_args()
-    main(args)
+    main(args, resume=args.resume)
